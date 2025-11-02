@@ -7,6 +7,8 @@ import logging
 from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.model_selection import cross_val_score
 from collections import defaultdict
 
 # --- 1. SET UP LOGGING ---
@@ -70,7 +72,6 @@ def _fetch_historical_oni():
                 continue
                 
             try:
-                # FIX: Corrected column parsing based on "SEAS YR TOTAL ANOM" format
                 season = parts[seas_col]
                 year = int(parts[yr_col])
                 anomaly_str = parts[anom_col]
@@ -98,10 +99,10 @@ def _fetch_historical_oni():
         logging.error(f"Failed to fetch or parse ONI data: {e}")
         return {}, 0.0
 
-# --- General Parser for AO, NAO, PNA ---
+# --- General Parser for AO, NAO, PNA, PDO ---
 def _fetch_historical_teleconnection(url, name):
     """
-    Generic parser for NOAA's monthly teleconnection files (AO, NAO, PNA).
+    Generic parser for NOAA's monthly teleconnection files (AO, NAO, PNA, PDO).
     Returns:
     - {year: {month: value}}
     - latest_value
@@ -188,12 +189,13 @@ def get_historical_data_for_ml(lat, lon, years=30):
         "https://psl.noaa.gov/data/correlation/ao.data", "AO")
     historical_nao_data, current_nao = _fetch_historical_teleconnection(
         "https://psl.noaa.gov/data/correlation/nao.data", "NAO")
-    # --- FIX: Corrected PNA URL (added https://) ---
     historical_pna_data, current_pna = _fetch_historical_teleconnection(
         "https://psl.noaa.gov/data/correlation/pna.data", "PNA")
+    historical_pdo_data, current_pdo = _fetch_historical_teleconnection(
+        "https://psl.noaa.gov/data/correlation/pdo.data", "PDO")
     
     current_drivers = {
-        "oni": current_oni, "ao": current_ao, "nao": current_nao, "pna": current_pna
+        "oni": current_oni, "ao": current_ao, "nao": current_nao, "pna": current_pna, "pdo": current_pdo
     }
 
     # 2. Fetch daily Open-Meteo data
@@ -204,7 +206,6 @@ def get_historical_data_for_ml(lat, lon, years=30):
     
     base_url = "https://archive-api.open-meteo.com/v1/archive"
     
-    # --- FIX: Removed unavailable daily params 'soil_moisture_0_to_7cm' and 'snow_depth' ---
     params = {
         'latitude': lat, 'longitude': lon,
         'start_date': start_date, 'end_date': end_date,
@@ -260,6 +261,7 @@ def get_historical_data_for_ml(lat, lon, years=30):
             ao_val = historical_ao_data.get(year, {}).get(month, 0.0)
             nao_val = historical_nao_data.get(year, {}).get(month, 0.0)
             pna_val = historical_pna_data.get(year, {}).get(month, 0.0)
+            pdo_val = historical_pdo_data.get(year, {}).get(month, 0.0)
 
             if date.month >= 8 or date.month <= 5: # "Snow Season"
                 X_train_first_snow.append([
@@ -267,7 +269,8 @@ def get_historical_data_for_ml(lat, lon, years=30):
                     oni_val, 
                     ao_val,
                     nao_val,
-                    pna_val
+                    pna_val,
+                    pdo_val
                 ])
                 y_train_first_snow.append(1 if snow_in > 0.1 else 0)
 
@@ -279,13 +282,15 @@ def get_historical_data_for_ml(lat, lon, years=30):
                 if (season_year in historical_oni_data and 
                     month in historical_ao_data.get(season_year, {}) and
                     month in historical_nao_data.get(season_year, {}) and
-                    month in historical_pna_data.get(season_year, {})):
+                    month in historical_pna_data.get(season_year, {}) and
+                    month in historical_pdo_data.get(season_year, {})):
                     
                     seasonal_driver_features[season_year] = [
                         historical_oni_data[season_year],
                         historical_ao_data[season_year][month],
                         historical_nao_data[season_year][month],
-                        historical_pna_data[season_year][month]
+                        historical_pna_data[season_year][month],
+                        historical_pdo_data[season_year][month]
                     ]
 
             if year not in year_data: year_data[year] = []
@@ -312,7 +317,7 @@ def get_historical_data_for_ml(lat, lon, years=30):
                      if date.month <= 5: # Stop in May
                          if temp <= 32.0 and snow > 0.1:
                              # This is still part of the 'season_year' season
-                             first_snow_doy_list.append(date.timetuple().tm_yday)
+                             first_snow_doy_list.append(date.timetuple().tm_yday + 365)
                              first_snow_years_found.add(season_year)
                              break
         # --- End Fix ---
@@ -341,18 +346,18 @@ def get_historical_data_for_ml(lat, lon, years=30):
 
 def fetch_current_ground_state(lat, lon):
     """Fetches the most recent soil moisture and snow depth from Open-Meteo."""
-    # --- FIX: Removed as soil_moisture and snow_depth are not available as daily params; return defaults ---
+    # --- FIX: Removed as soil_moisture and snow_depth are not available in daily params; return defaults ---
     logging.info("Skipping fetch of current ground state (not available in daily API). Using defaults.")
     return 0.0, 0.0
 
 def train_first_snow_model(X_train, y_train):
     """
-    Trains a Logistic Regression model for "First Snow"
+    Trains a Random Forest model for "First Snow"
     """
-    model = LogisticRegression(C=1.0, class_weight='balanced', solver='liblinear')
+    model = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
     
     # --- Features are:
-    # 0: doy, 1: oni, 2: ao, 3: nao, 4: pna
+    # 0: doy, 1: oni, 2: ao, 3: nao, 4: pna, 5: pdo
     doy_features = X_train[:, 0]
     
     doy_radians = (doy_features * (2 * np.pi / 365.25))
@@ -363,7 +368,7 @@ def train_first_snow_model(X_train, y_train):
     scaled_features_list = []
     
     # Scale all features *except* the first one (doy)
-    feature_names = ['oni', 'ao', 'nao', 'pna']
+    feature_names = ['oni', 'ao', 'nao', 'pna', 'pdo']
     for i, name in enumerate(feature_names):
         feature_data = X_train[:, i+1].reshape(-1, 1)
         scaler = StandardScaler()
@@ -374,14 +379,21 @@ def train_first_snow_model(X_train, y_train):
     
     model.fit(X_features_final, y_train)
     
+    scores = cross_val_score(model, X_features_final, y_train, cv=5, scoring='roc_auc')
+    logging.info(f"First Snow Model CV AUC: {scores.mean():.3f} ± {scores.std():.3f}")
+    
     return model, scalers
 
 def train_seasonal_snow_model(X_train, y_train):
     """
-    Trains a Linear Regression model for "Total Seasonal Snowfall".
+    Trains a Random Forest model for "Total Seasonal Snowfall".
     """
-    model = LinearRegression()
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
+    
+    scores = cross_val_score(model, X_train, y_train, cv=5, scoring='neg_mean_absolute_error')
+    logging.info(f"Seasonal Snow Model CV MAE: {-scores.mean():.3f} ± {scores.std():.3f}")
+    
     return model
 
 def predict_first_snow_with_ml(model, scalers, current_doy, current_drivers, threshold=0.25):
@@ -389,15 +401,16 @@ def predict_first_snow_with_ml(model, scalers, current_doy, current_drivers, thr
     Uses the trained ML model to find the first day after
     current_doy where snow probability exceeds the threshold.
     """
-    (current_oni, current_ao, current_nao, current_pna) = current_drivers
+    (current_oni, current_ao, current_nao, current_pna, current_pdo) = current_drivers
     
     # --- Scale current drivers using the scaler dictionary ---
     scaled_oni_val = scalers['oni'].transform([[current_oni]])[0, 0]
     scaled_ao_val = scalers['ao'].transform([[current_ao]])[0, 0]
     scaled_nao_val = scalers['nao'].transform([[current_nao]])[0, 0]
     scaled_pna_val = scalers['pna'].transform([[current_pna]])[0, 0]
+    scaled_pdo_val = scalers['pdo'].transform([[current_pdo]])[0, 0]
     
-    scaled_drivers_list = [scaled_oni_val, scaled_ao_val, scaled_nao_val, scaled_pna_val]
+    scaled_drivers_list = [scaled_oni_val, scaled_ao_val, scaled_nao_val, scaled_pna_val, scaled_pdo_val]
 
     for day_offset in range(1, 180):
         doy = current_doy + day_offset
@@ -531,7 +544,7 @@ if __name__ == "__main__":
         
         # --- Normalize historical DOYs for cyclic nature ---
         cutoff = 200  # Assume no first snow before ~July
-        adjusted_doys = [d + 365 if d < cutoff else d for d in historical_doys]
+        adjusted_doys = [d if d < 365 else d - 365 for d in historical_doys]  # Normalize to 1-365
         prior_mu = np.median(adjusted_doys)
         prior_sigma = max(np.std(adjusted_doys) if len(adjusted_doys) > 1 else 15.0, 5.0)
         
@@ -557,6 +570,8 @@ if __name__ == "__main__":
                 "https://psl.noaa.gov/data/correlation/nao.data", "NAO")
             _, current_pna = _fetch_historical_teleconnection(
                 "https://psl.noaa.gov/data/correlation/pna.data", "PNA")
+            _, current_pdo = _fetch_historical_teleconnection(
+                "https://psl.noaa.gov/data/correlation/pdo.data", "PDO")
             
             oni_status = "Neutral"
             if current_oni >= 0.5: oni_status = f"El Niño ({current_oni:.2f})"
@@ -564,7 +579,7 @@ if __name__ == "__main__":
             
             driver_status_string = (
                 f"ENSO: {oni_status} | AO: {current_ao:.2f} | "
-                f"NAO: {current_nao:.2f} | PNA: {current_pna:.2f}"
+                f"NAO: {current_nao:.2f} | PNA: {current_pna:.2f} | PDO: {current_pdo:.2f}"
             )
             logging.info(f"Current Climate Drivers: {driver_status_string}")
             
@@ -588,9 +603,9 @@ if __name__ == "__main__":
                 # --- FIX: Removed soil and snow_depth ---
                 current_soil, current_snow = 0.0, 0.0
                 
-                # Order MUST match training: oni, ao, nao, pna
+                # Order MUST match training: oni, ao, nao, pna, pdo
                 current_drivers_list = (
-                    current_oni, current_ao, current_nao, current_pna
+                    current_oni, current_ao, current_nao, current_pna, current_pdo
                 )
                 
                 current_doy = current_date.timetuple().tm_yday
@@ -642,9 +657,9 @@ if __name__ == "__main__":
             if model_2 is not None:
                 logging.info("Running Model 2 (Seasonal Snowfall Outlook)...")
                 
-                # Features: oni, ao, nao, pna
+                # Features: oni, ao, nao, pna, pdo
                 seasonal_driver_features = np.array([[
-                    current_oni, current_ao, current_nao, current_pna
+                    current_oni, current_ao, current_nao, current_pna, current_pdo
                 ]])
                 
                 predicted_total_snow = model_2.predict(seasonal_driver_features)[0]
