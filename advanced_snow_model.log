@@ -1,0 +1,29 @@
+2025-11-03 23:37:53,928 - INFO - Saved config: Location = Lansing, MI
+2025-11-03 23:37:54,738 - INFO - Found location: Lansing, Ingham County, Michigan, United States of America
+2025-11-03 23:37:54,740 - INFO - Using coordinates: 42.7338, -84.5546
+2025-11-03 23:37:54,742 - INFO - --- Daily Prediction Cycle ---
+2025-11-03 23:37:54,742 - INFO - No historical weather file found. Starting fresh.
+2025-11-03 23:37:54,742 - INFO - Serving web server at http://localhost:8080
+2025-11-03 23:37:54,747 - INFO - Fetching missing historical data from 1940-01-01 to 2025-11-02
+2025-11-03 23:39:02,596 - INFO - Saved 31353 historical weather records.
+2025-11-03 23:39:02,597 - INFO - Fetching historical ENSO (ONI) data from NOAA...
+2025-11-03 23:39:02,924 - INFO - Successfully parsed ONI. Most recent: ASO 2025 (ONI: -0.45)
+2025-11-03 23:39:02,926 - INFO - Fetching historical AO data from NOAA...
+2025-11-03 23:39:03,236 - INFO - Successfully parsed AO. Most recent value: 0.05
+2025-11-03 23:39:03,237 - INFO - Fetching historical NAO data from NOAA...
+2025-11-03 23:39:03,531 - INFO - Successfully parsed NAO. Most recent value: -0.63
+2025-11-03 23:39:03,532 - INFO - Fetching historical PNA data from NOAA...
+2025-11-03 23:39:03,830 - INFO - Successfully parsed PNA. Most recent value: 0.63
+2025-11-03 23:39:03,831 - INFO - Fetching historical PDO data from NOAA...
+2025-11-03 23:39:04,268 - INFO - Successfully parsed PDO. Most recent value: -9.90
+2025-11-03 23:39:04,269 - INFO - Fetching historical QBO data from FU Berlin...
+2025-11-03 23:39:05,704 - INFO - Successfully parsed QBO. Most recent value: -25.50
+2025-11-03 23:39:05,705 - INFO - Fetching historical SSN data from SIDC...
+2025-11-03 23:39:06,913 - INFO - Successfully parsed SSN. Most recent value: 114.60
+2025-11-03 23:39:06,915 - INFO - Fetching historical MJO data from NOAA PSL...
+2025-11-03 23:39:08,286 - INFO - Successfully parsed MJO amplitude. Most recent: 0.00
+2025-11-03 23:39:08,296 - INFO - Saved teleconnection data.
+2025-11-03 23:39:09,575 - INFO - Found 85 historical first-snow events.
+2025-11-03 23:39:09,575 - INFO - Training 'First Snow' on 26107 records.
+2025-11-03 23:39:09,575 - INFO - Training 'Seasonal Total' on 75 seasons.
+2025-11-03 23:39:10,672 - ERROR - Error: all elements of input should be between 0 and 1
